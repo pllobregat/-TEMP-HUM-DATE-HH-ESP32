@@ -1,80 +1,74 @@
-# Rui Santos & Sara Santos - Random Nerd Tutorials
-# Detalls complets del projecte a https://RandomNerdTutorials.com/micropython-i2c-lcd-esp32-esp8266/
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+#include <time.h>
 
-from machine import Pin, SoftI2C
-from machine_i2c_lcd import I2cLcd
-from machine import RTC
-from time import sleep
-import dht
-import esp
-esp.osdebug(None)
+// Configuració del sensor DHT22
+#define DHTPIN 15
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
-# Inicialitzem el sensor DHT22 al pin GPIO15
-sensor = dht.DHT22(Pin(15))
+// Configuració de la pantalla LCD I2C
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Adreça I2C, columnes, files
 
-# Definim l'adreça I2C i les dimensions de la pantalla LCD
-I2C_ADDR = 0x27
-I2C_NUM_ROWS = 2
-I2C_NUM_COLS = 16
+// Configuració de l'hora amb RTC intern (ESP32)
+void setupTime() {
+  configTime(3600, 0, "pool.ntp.org", "time.nist.gov");
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Error obtenint hora");
+  }
+}
 
-# Inicialitzem la comunicació I2C i la pantalla LCD
-i2c = SoftI2C(sda=Pin(21), scl=Pin(22), freq=400000)
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Funciona :)");
+  delay(4000);
+  setupTime();
+}
 
-# Per ESP8266, descomenta la línia següent
-# i2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400000)
+void loop() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
 
-lcd = I2cLcd(i2c, I2C_ADDR, I2C_NUM_ROWS, I2C_NUM_COLS)
+  if (isnan(temp) || isnan(hum)) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Error sensor");
+    delay(2000);
+    return;
+  }
 
-# Missatge inicial a la pantalla
-lcd.putstr("Funciona :)")
-sleep(4)
+  // Formatem la data i hora
+  struct tm timeinfo;
+  getLocalTime(&timeinfo);
 
-# Funció per obtenir la data i hora del rellotge intern (RTC)
-def getRtcTime():
-    rtc = RTC()
-    # rtc.datetime((2024, 10, 25, 0, 12, 15, 0, 0)) # per establir una data/hora específica
-    yr, mon, day, dow, hor, minute, sec, ms = rtc.datetime()
-    return yr, mon, day, hor, minute
+  char dateStr[17];
+  char timeStr[17];
+  snprintf(dateStr, sizeof(dateStr), "%02d/%02d/%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+  snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
 
-# Funció per llegir la temperatura i humitat amb decimals
-def read_sensor():
-    try:
-        sensor.measure()
-        temp = "{:.1f} C".format(sensor.temperature())
-        hum = "{:.1f} %".format(sensor.humidity())
-        return temp, hum
-    except OSError as e:
-        return 'Error lectura sensor.', 'N/A'
+  // Mostrem temperatura i humitat
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.print(temp, 1);
+  lcd.print(" C");
+  lcd.setCursor(0, 1);
+  lcd.print("Hum: ");
+  lcd.print(hum, 1);
+  lcd.print(" %");
+  delay(2000);
 
-# Bucle principal
-try:
-    while True:
-        temp, hum = read_sensor()
-        dy, dm, dd, dh, dmin = getRtcTime()
-
-        # Formatem l'hora amb zeros davant si cal
-        tstring = ["{:02d}".format(dh), "{:02d}".format(dmin)]
-        dstring = ["{:02d}".format(dd), "{:02d}".format(dm), str(dy)]
-
-        date = '/'.join(dstring)
-        time = ':'.join(tstring)
-
-        # Mostrem temperatura i humitat
-        lcd.clear()
-        lcd.putstr("Temp.: " + temp)
-        lcd.move_to(0, 1)
-        lcd.putstr("Humitat: " + hum)
-        sleep(2)
-
-        # Mostrem data i hora
-        lcd.clear()
-        lcd.putstr(date)
-        lcd.move_to(0, 1)
-        lcd.putstr(time)
-        sleep(2)
-
-# Si s'interromp amb Ctrl+C
-except KeyboardInterrupt:
-    print("Interrupció per teclat")
-    lcd.backlight_off()
-    lcd.display_off()
+  // Mostrem data i hora
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(dateStr);
+  lcd.setCursor(0, 1);
+  lcd.print(timeStr);
+  delay(2000);
+}
